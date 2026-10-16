@@ -30,6 +30,7 @@ internal sealed class SettingsWindow : Window
         Background = new SolidColorBrush(Color.FromRgb(248, 249, 252));
         FontFamily = new FontFamily("Segoe UI");
         ShowInTaskbar = false;
+        Topmost = true;
 
         var root = new DockPanel { LastChildFill = true, Margin = new Thickness(18) };
         Content = root;
