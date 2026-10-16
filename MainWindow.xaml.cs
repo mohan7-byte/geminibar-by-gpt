@@ -93,11 +93,34 @@ public sealed partial class MainWindow : Window
         SourceInitialized += (_, _) => RegisterClipboardListener();
         Loaded += async (_, _) =>
         {
+            var needsSettings = string.IsNullOrWhiteSpace(_apiKey);
+
+            // Ensure the WebView2 has a real, non-transparent HWND before
+            // initializing. The first-run panel is shown immediately; when a
+            // key is already saved, initialize the panel off-screen to avoid a
+            // startup flash, then hide it after the browser is ready.
+            if (_uiSmokeTest || needsSettings)
+            {
+                SetExpanded(true);
+            }
+            else
+            {
+                var work = SystemParameters.WorkArea;
+                _panelWindow.Left = work.Right + ExpandedWidth + 100;
+                _panelWindow.Top = work.Bottom + ExpandedHeight + 100;
+                _panelWindow.Show();
+            }
+
             await InitializeChatBrowserAsync();
-            if (!_uiSmokeTest && string.IsNullOrWhiteSpace(_apiKey))
+
+            if (!_uiSmokeTest && needsSettings)
             {
                 SetExpanded(true);
                 Dispatcher.BeginInvoke(new Action(OpenSettings));
+            }
+            else if (!_uiSmokeTest)
+            {
+                SetExpanded(false);
             }
         };
         Closing += (_, _) =>
