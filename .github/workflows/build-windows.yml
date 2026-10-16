@@ -17,10 +17,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Install .NET 10 SDK
+      - name: Install .NET 8 SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 8.0.x
 
       - name: Restore Windows x64 self-contained dependencies
         run: dotnet restore GeminiBar.csproj -r win-x64 -p:SelfContained=true
