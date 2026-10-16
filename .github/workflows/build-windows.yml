@@ -34,6 +34,9 @@ jobs:
       - name: Run built-in smoke tests
         run: .\publish\GeminiBar.exe --self-test
 
+      - name: Run visible WebView2 UI smoke test
+        run: .\publish\GeminiBar.exe --ui-self-test
+
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
