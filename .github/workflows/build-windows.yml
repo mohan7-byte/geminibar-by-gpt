@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -22,11 +22,11 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore Windows x64 dependencies
-        run: dotnet restore GeminiBar.csproj -r win-x64
+      - name: Restore Windows x64 self-contained dependencies
+        run: dotnet restore GeminiBar.csproj -r win-x64 -p:SelfContained=true
 
       - name: Build
-        run: dotnet build GeminiBar.csproj --configuration Release --no-restore -r win-x64
+        run: dotnet build GeminiBar.csproj --configuration Release --no-restore -r win-x64 -p:SelfContained=true
 
       - name: Publish self-contained single-file EXE
         run: dotnet publish GeminiBar.csproj --configuration Release --no-restore -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -o publish
@@ -34,10 +34,19 @@ jobs:
       - name: Run built-in smoke tests
         run: .\publish\GeminiBar.exe --self-test
 
-      - name: Upload executable
+      - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
           name: GeminiBar-Windows-x64
           path: publish/GeminiBar.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish direct EXE download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: GeminiBar build ${{ github.run_number }}
+          make_latest: true
+          generate_release_notes: true
+          files: publish/GeminiBar.exe
