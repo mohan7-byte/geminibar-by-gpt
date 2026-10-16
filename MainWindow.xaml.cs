@@ -42,6 +42,8 @@ public sealed partial class MainWindow : Window
     private Grid _root = null!;
     private Button _compactButton = null!;
     private Border _expandedPanel = null!;
+    private Window _panelWindow = null!;
+    private bool _isShuttingDown;
     private Grid _chatHost = null!;
     private TextBox _input = null!;
     private Button _sendButton = null!;
@@ -97,6 +99,7 @@ public sealed partial class MainWindow : Window
         };
         Closing += (_, _) =>
         {
+            _isShuttingDown = true;
             if (_hwndSource is not null)
                 _hwndSource.RemoveHook(ClipboardWndProc);
             if (_hwnd != IntPtr.Zero)
@@ -123,9 +126,32 @@ public sealed partial class MainWindow : Window
         _compactButton.Margin = new Thickness(3);
         _root.Children.Add(_compactButton);
 
+        // WebView2 must not live inside the transparent/layered floating-button
+        // window. Keep it in a separate, fully opaque HWND to avoid black rendering.
         _expandedPanel = BuildExpandedPanel();
-        _expandedPanel.Visibility = Visibility.Collapsed;
-        _root.Children.Add(_expandedPanel);
+        _panelWindow = new Window
+        {
+            Title = "GeminiBar",
+            Width = ExpandedWidth,
+            Height = ExpandedHeight,
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = false,
+            Background = Brush("#F8F9FC"),
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            Topmost = true,
+            FontFamily = new FontFamily("Segoe UI"),
+            Owner = this,
+            Content = _expandedPanel
+        };
+        _panelWindow.Closing += (_, e) =>
+        {
+            if (!_isShuttingDown)
+            {
+                e.Cancel = true;
+                _panelWindow.Hide();
+            }
+        };
         return _root;
     }
 
@@ -182,7 +208,7 @@ public sealed partial class MainWindow : Window
         {
             if (e.LeftButton == MouseButtonState.Pressed)
             {
-                try { DragMove(); } catch { }
+                try { _panelWindow.DragMove(); } catch { }
             }
         };
         Grid.SetRow(header, 0);
@@ -372,34 +398,44 @@ public sealed partial class MainWindow : Window
     {
         _expanded = expanded;
         var work = SystemParameters.WorkArea;
+
+        // The floating G button remains a tiny transparent window. The chat
+        // uses its own opaque window so WebView2 can render reliably.
+        Width = 64;
+        Height = 64;
+        Left = Math.Max(work.Left + 4, work.Right - Width - 20);
+        Top = Math.Max(work.Top + 10, work.Top + 85);
+        _compactButton.Visibility = Visibility.Visible;
+
         if (expanded)
         {
-            Width = ExpandedWidth;
-            Height = ExpandedHeight;
-            Left = Math.Max(work.Left + 6, work.Right - ExpandedWidth - 16);
-            Top = Math.Max(work.Top + 16, work.Top + 82);
-            _compactButton.Visibility = Visibility.Collapsed;
-            _expandedPanel.Visibility = Visibility.Visible;
+            _panelWindow.Width = ExpandedWidth;
+            _panelWindow.Height = ExpandedHeight;
+            _panelWindow.Left = Math.Max(work.Left + 6, work.Right - ExpandedWidth - 16);
+            _panelWindow.Top = Math.Max(work.Top + 16, work.Top + 82);
+            _panelWindow.Opacity = 1.0;
+            if (!_panelWindow.IsVisible)
+                _panelWindow.Show();
+            _panelWindow.Activate();
+            if (IsLoaded)
+                _input?.Focus();
         }
-        else
+        else if (_panelWindow.IsVisible)
         {
-            Width = 64;
-            Height = 64;
-            Left = Math.Max(work.Left + 4, work.Right - Width - 20);
-            Top = Math.Max(work.Top + 10, work.Top + 85);
-            _expandedPanel.Visibility = Visibility.Collapsed;
-            _compactButton.Visibility = Visibility.Visible;
+            _panelWindow.Hide();
         }
 
         ApplyOpacity();
-        if (expanded && IsLoaded)
-        {
-            Activate();
-            _input?.Focus();
-        }
     }
 
-    private void ApplyOpacity() => Opacity = Math.Clamp(_settings.Opacity, 0.35, 1.0);
+    // Keep WebView2 in a normal opaque window. Applying Window.Opacity to
+    // that HWND creates a layered window on some WPF versions and can blank it.
+    private void ApplyOpacity()
+    {
+        Opacity = Math.Clamp(_settings.Opacity, 0.35, 1.0);
+        if (_panelWindow is not null)
+            _panelWindow.Opacity = 1.0;
+    }
 
     private async Task InitializeChatBrowserAsync()
     {
