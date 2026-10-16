@@ -31,7 +31,6 @@ public sealed partial class MainWindow : Window
     private const int WmClipboardUpdate = 0x031D;
     private const double ExpandedWidth = 468;
     private const double ExpandedHeight = 690;
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(3) };
     private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
         .DisableHtml()
@@ -348,9 +347,9 @@ public sealed partial class MainWindow : Window
     {
         var border = new FrameworkElementFactory(typeof(Border));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
-        border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = RelativeSource.TemplatedParent });
-        border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = RelativeSource.TemplatedParent });
-        border.SetBinding(Border.BorderThicknessProperty, new System.Windows.Data.Binding("BorderThickness") { RelativeSource = RelativeSource.TemplatedParent });
+        border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        border.SetBinding(Border.BorderThicknessProperty, new System.Windows.Data.Binding("BorderThickness") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
 
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
@@ -715,8 +714,7 @@ setTimeout(function(){typeset();window.scrollTo(0,document.body.scrollHeight);},
 
             _livePlayback = new BufferedWaveProvider(new WaveFormat(24000, 16, 1))
             {
-                DiscardOnBufferOverflow = true,
-                BufferDuration = TimeSpan.FromSeconds(12)
+                DiscardOnBufferOverflow = true
             };
             _liveOutput = new WaveOut();
             _liveOutput.Init(_livePlayback);
@@ -907,6 +905,8 @@ internal static class SettingsStore
 
 internal static class GeminiApiClient
 {
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(3) };
+
     public static string BuildGenerateUrl(string model, string apiKey)
     {
         var id = NormalizeModelId(model);
