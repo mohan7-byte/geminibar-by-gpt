@@ -26,7 +26,7 @@ using System.Windows.Media.Imaging;
 
 namespace GeminiBar;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private const int WmClipboardUpdate = 0x031D;
     private const double ExpandedWidth = 468;
@@ -63,8 +63,8 @@ public sealed class MainWindow : Window
     private ClientWebSocket? _liveSocket;
     private CancellationTokenSource? _liveCts;
     private Channel<string>? _liveOutgoing;
-    private WaveInEvent? _liveInput;
-    private WaveOutEvent? _liveOutput;
+    private WaveIn? _liveInput;
+    private WaveOut? _liveOutput;
     private BufferedWaveProvider? _livePlayback;
     private Task? _liveSendTask;
     private Task? _liveReceiveTask;
@@ -179,7 +179,7 @@ public sealed class MainWindow : Window
         headerButtons.Children.Add(MakeButton("×", Close, "#FFFFFF", "#E1E5EC", Brush("#343844"), new Thickness(9, 7, 9, 7)));
         Grid.SetColumn(headerButtons, 1);
         header.Children.Add(headerButtons);
-        header.MouseLeftButtonDown += (_, e) =>
+        identity.MouseLeftButtonDown += (_, e) =>
         {
             if (e.LeftButton == MouseButtonState.Pressed)
             {
@@ -703,6 +703,7 @@ setTimeout(function(){typeset();window.scrollTo(0,document.body.scrollHeight);},
             var setup = GeminiLiveClient.BuildSetup(_settings);
             var setupBytes = Encoding.UTF8.GetBytes(setup.ToJsonString());
             await socket.SendAsync(new ArraySegment<byte>(setupBytes), WebSocketMessageType.Text, true, token);
+            await GeminiLiveClient.WaitForSetupCompleteAsync(socket, token);
 
             _liveOutgoing = Channel.CreateBounded<string>(new BoundedChannelOptions(12)
             {
@@ -717,11 +718,11 @@ setTimeout(function(){typeset();window.scrollTo(0,document.body.scrollHeight);},
                 DiscardOnBufferOverflow = true,
                 BufferDuration = TimeSpan.FromSeconds(12)
             };
-            _liveOutput = new WaveOutEvent();
+            _liveOutput = new WaveOut();
             _liveOutput.Init(_livePlayback);
             _liveOutput.Play();
 
-            _liveInput = new WaveInEvent
+            _liveInput = new WaveIn
             {
                 WaveFormat = new WaveFormat(16000, 16, 1),
                 BufferMilliseconds = 100,
@@ -1061,6 +1062,38 @@ internal static class GeminiLiveClient
                 ["outputAudioTranscription"] = new JsonObject()
             }
         };
+    }
+
+    public static async Task WaitForSetupCompleteAsync(ClientWebSocket socket, CancellationToken token)
+    {
+        var buffer = new byte[16 * 1024];
+        using var message = new MemoryStream();
+
+        while (!token.IsCancellationRequested)
+        {
+            var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+            if (result.MessageType == WebSocketMessageType.Close)
+                throw new WebSocketException("Gemini Live closed the connection before setup completed.");
+
+            message.Write(buffer, 0, result.Count);
+            if (!result.EndOfMessage)
+                continue;
+
+            using var doc = JsonDocument.Parse(message.ToArray());
+            message.SetLength(0);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("setupComplete", out _))
+                return;
+
+            if (root.TryGetProperty("error", out var error))
+            {
+                var detail = error.TryGetProperty("message", out var value) ? value.GetString() : error.ToString();
+                throw new InvalidOperationException("Gemini Live setup failed: " + (detail ?? "unknown error"));
+            }
+        }
+
+        throw new OperationCanceledException(token);
     }
 
     public static async Task SendLoopAsync(ClientWebSocket socket, ChannelReader<string> reader, CancellationToken token)
