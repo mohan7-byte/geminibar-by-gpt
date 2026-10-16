@@ -44,6 +44,8 @@ public sealed partial class MainWindow : Window
     private Border _expandedPanel = null!;
     private Window _panelWindow = null!;
     private bool _isShuttingDown;
+    private readonly bool _uiSmokeTest;
+    private readonly TaskCompletionSource<bool> _firstPageReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Grid _chatHost = null!;
     private TextBox _input = null!;
     private Button _sendButton = null!;
@@ -71,8 +73,9 @@ public sealed partial class MainWindow : Window
     private Task? _liveReceiveTask;
     private bool _liveActive;
 
-    public MainWindow()
+    public MainWindow(bool uiSmokeTest = false)
     {
+        _uiSmokeTest = uiSmokeTest;
         InitializeComponent();
         _settings = SettingsStore.Load(out _apiKey);
 
@@ -91,7 +94,7 @@ public sealed partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             await InitializeChatBrowserAsync();
-            if (string.IsNullOrWhiteSpace(_apiKey))
+            if (!_uiSmokeTest && string.IsNullOrWhiteSpace(_apiKey))
             {
                 SetExpanded(true);
                 Dispatcher.BeginInvoke(new Action(OpenSettings));
@@ -452,10 +455,17 @@ public sealed partial class MainWindow : Window
                 if (!string.Equals(e.Uri, "about:blank", StringComparison.OrdinalIgnoreCase))
                     e.Cancel = true;
             };
+            _browser.CoreWebView2.NavigationCompleted += (_, e) =>
+            {
+                if (_firstPageReady.Task.IsCompleted)
+                    return;
+                _firstPageReady.TrySetResult(e.IsSuccess);
+            };
             RefreshChatHtml();
         }
         catch
         {
+            _firstPageReady.TrySetResult(false);
             _browser = null;
             _chatHost.Children.Clear();
             _chatHost.Children.Add(new TextBlock
@@ -469,6 +479,30 @@ public sealed partial class MainWindow : Window
             });
             SetStatus("WebView2 runtime required");
         }
+    }
+
+    public async Task RunUiSmokeTestAsync()
+    {
+        // Showing the real opaque panel is essential: a hidden WebView2 can
+        // initialize without exercising the same layout path used by students.
+        SetExpanded(true);
+        var completed = await Task.WhenAny(_firstPageReady.Task, Task.Delay(TimeSpan.FromSeconds(25)));
+        if (completed != _firstPageReady.Task)
+            throw new TimeoutException("WebView2 did not finish loading the chat document within 25 seconds.");
+
+        if (!await _firstPageReady.Task || _browser?.CoreWebView2 is null)
+            throw new InvalidOperationException("WebView2 failed to navigate to the chat document.");
+
+        var json = await _browser.CoreWebView2.ExecuteScriptAsync("document.body.innerText");
+        var visibleText = JsonSerializer.Deserialize<string>(json) ?? "";
+        if (!visibleText.Contains("Ask a question", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The chat page loaded, but its expected welcome text was not rendered. Body text: " + visibleText);
+
+        // Verify that the renderer is running JS too, not merely returning an
+        // initialized browser object.
+        var readyState = await _browser.CoreWebView2.ExecuteScriptAsync("document.readyState");
+        if (!string.Equals(JsonSerializer.Deserialize<string>(readyState), "complete", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The chat document did not reach the complete ready state.");
     }
 
     private void RefreshChatHtml()
