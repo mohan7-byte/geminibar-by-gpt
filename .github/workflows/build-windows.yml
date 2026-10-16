@@ -1,0 +1,43 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore Windows x64 dependencies
+        run: dotnet restore GeminiBar.csproj -r win-x64
+
+      - name: Build
+        run: dotnet build GeminiBar.csproj --configuration Release --no-restore -r win-x64
+
+      - name: Publish self-contained single-file EXE
+        run: dotnet publish GeminiBar.csproj --configuration Release --no-restore -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -o publish
+
+      - name: Run built-in smoke tests
+        run: .\publish\GeminiBar.exe --self-test
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeminiBar-Windows-x64
+          path: publish/GeminiBar.exe
+          if-no-files-found: error
+          retention-days: 30
